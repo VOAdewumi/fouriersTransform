@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Visualization</title>
+    <style>
+        canvas {
+            display: block;
+            margin: 20px auto;
+            border: 1px solid #ccc;
+        }
+        body {
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <h1>Audio Visualization</h1>
+    <p>Select an audio file to visualize its waveform and frequency spectrum.</p>
+    <input type="file" id="audioInput" accept="audio/*">
+    <canvas id="waveformCanvas" width="800" height="200"></canvas>
+    <canvas id="frequencyCanvas" width="800" height="200"></canvas>
+
+    <script>
+        // Select HTML elements
+        const audioInput = document.getElementById("audioInput");
+        const waveformCanvas = document.getElementById("waveformCanvas");
+        const frequencyCanvas = document.getElementById("frequencyCanvas");
+
+        const waveformCtx = waveformCanvas.getContext("2d");
+        const frequencyCtx = frequencyCanvas.getContext("2d");
+
+        // Audio context setup
+        let audioCtx, source, scriptProcessor;
+
+        // Handle audio file selection
+        audioInput.addEventListener("change", (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = () => processAudio(reader.result);
+                reader.readAsArrayBuffer(file);
+            }
+        });
+
+        // Process the uploaded audio file
+        function processAudio(arrayBuffer) {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            audioCtx.decodeAudioData(arrayBuffer, (audioBuffer) => {
+                source = audioCtx.createBufferSource();
+                source.buffer = audioBuffer;
+
+                // Create ScriptProcessorNode for real-time processing
+                scriptProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
+
+                // Connect nodes for both playback and visualization
+                source.connect(scriptProcessor);
+                scriptProcessor.connect(audioCtx.destination); // Audio is now audible
+                source.connect(audioCtx.destination);
+
+                // Start playback
+                source.start();
+
+                // Real-time processing
+                scriptProcessor.onaudioprocess = (event) => {
+                    const inputBuffer = event.inputBuffer.getChannelData(0); // Mono channel
+
+                    // Visualize waveform
+                    drawWaveform(inputBuffer);
+
+                    // Compute and visualize frequency spectrum using DFT
+                    const frequencies = dft(inputBuffer);
+                    drawFrequency(frequencies);
+                };
+            });
+        }
+
+        // Draw the time-domain waveform
+        function drawWaveform(data) {
+            waveformCtx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+            waveformCtx.fillStyle = "black";
+            waveformCtx.fillRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+
+            waveformCtx.lineWidth = 2;
+            waveformCtx.strokeStyle = "lime";
+            waveformCtx.beginPath();
+
+            const sliceWidth = waveformCanvas.width / data.length;
+            let x = 0;
+
+            for (let i = 0; i < data.length; i++) {
+                const y = (data[i] + 1) * (waveformCanvas.height / 2); // Normalize to canvas height
+                if (i === 0) {
+                    waveformCtx.moveTo(x, y);
+                } else {
+                    waveformCtx.lineTo(x, y);
+                }
+                x += sliceWidth;
+            }
+
+            waveformCtx.lineTo(waveformCanvas.width, waveformCanvas.height / 2);
+            waveformCtx.stroke();
+        }
+
+        // Discrete Fourier Transform (DFT) implementation
+        function dft(signal) {
+            const N = signal.length;
+            const frequencies = [];
+
+            for (let k = 0; k < N / 2; k++) { // Only positive frequencies
+                let real = 0; // Real part
+                let imag = 0; // Imaginary part
+
+                for (let n = 0; n < N; n++) {
+                    const theta = (2 * Math.PI * k * n) / N;
+
+                    // Apply Euler's formula
+                    real += signal[n] * Math.cos(theta); // Real part: cos(θ)
+                    imag -= signal[n] * Math.sin(theta); // Imaginary part: -sin(θ)
+                }
+
+                // Compute magnitude and normalize
+                const magnitude = Math.sqrt(real ** 2 + imag ** 2);
+                frequencies.push(magnitude);
+            }
+
+            return frequencies;
+        }
+
+        // Draw the frequency spectrum
+        function drawFrequency(frequencies) {
+            frequencyCtx.clearRect(0, 0, frequencyCanvas.width, frequencyCanvas.height);
+            frequencyCtx.fillStyle = "black";
+            frequencyCtx.fillRect(0, 0, frequencyCanvas.width, frequencyCanvas.height);
+
+            const barWidth = frequencyCanvas.width / frequencies.length;
+            let x = 0;
+
+            for (let i = 0; i < frequencies.length; i++) {
+                const magnitude = frequencies[i];
+                const barHeight = (magnitude / Math.max(...frequencies)) * frequencyCanvas.height;
+
+                frequencyCtx.fillStyle = `rgb(${barHeight * 2}, 100, 200)`; // Dynamic color
+                frequencyCtx.fillRect(x, frequencyCanvas.height - barHeight, barWidth, barHeight);
+                x += barWidth;
+            }
+        }
+    </script>
+</body>
+</html>
